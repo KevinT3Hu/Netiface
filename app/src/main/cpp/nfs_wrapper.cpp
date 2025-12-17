@@ -257,22 +257,22 @@ Java_com_netiface_nfsclient_NfsClient_nativeWriteFile(
         return -1;
     }
     
-    // Open the file for writing
-    // Note: Using O_WRONLY | O_CREAT without O_TRUNC allows for offset-based writes
+    // Open or create the file for writing
+    // Note: Using O_WRONLY without O_TRUNC allows for offset-based writes
     // This is intentional to support partial file updates via the offset parameter
     struct nfsfh *fh = nullptr;
-    int ret = nfs_open(nfs, pathStr, O_WRONLY | O_CREAT, &fh);
-    if (ret != 0) {
-        LOGE("Failed to open file for writing %s: %s", pathStr, nfs_get_error(nfs));
-        env->ReleaseStringUTFChars(path, pathStr);
-        return -1;
-    }
+    int ret;
     
-    // Set file permissions after creation
-    ret = nfs_chmod(nfs, pathStr, DEFAULT_FILE_MODE);
+    // Try to open existing file first
+    ret = nfs_open(nfs, pathStr, O_WRONLY, &fh);
     if (ret != 0) {
-        LOGD("Warning: Failed to set file permissions: %s", nfs_get_error(nfs));
-        // Continue anyway as the file was created successfully
+        // File doesn't exist, create it with proper permissions
+        ret = nfs_creat(nfs, pathStr, DEFAULT_FILE_MODE, &fh);
+        if (ret != 0) {
+            LOGE("Failed to create file %s: %s", pathStr, nfs_get_error(nfs));
+            env->ReleaseStringUTFChars(path, pathStr);
+            return -1;
+        }
     }
     
     // Seek to the offset if needed
