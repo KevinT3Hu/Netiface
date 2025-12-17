@@ -60,11 +60,15 @@ cd Netiface
 
 ### Current Implementation
 
-The current version includes a **mock implementation** of the NFS operations for demonstration purposes. The native layer provides a simulated file system response. To integrate the actual libnfs library:
+The application now uses the **real libnfs implementation** for NFS operations. The native C++ layer (`nfs_wrapper.cpp`) directly integrates with the [sahlberg/libnfs](https://github.com/sahlberg/libnfs) library to provide authentic NFS client functionality:
 
-1. Clone and build libnfs for Android
-2. Update CMakeLists.txt to link against libnfs
-3. Replace mock implementations in nfs_wrapper.cpp with actual libnfs calls
+- **NFS Connection**: Uses `nfs_init_context()`, `nfs_set_uid()`, `nfs_set_gid()`, and `nfs_mount()` for establishing connections
+- **Directory Operations**: Uses `nfs_opendir()`, `nfs_readdir()`, and `nfs_closedir()` for listing directories
+- **File Metadata**: Uses `nfs_stat64()` for retrieving file information and checking file types
+- **File Reading**: Uses `nfs_open()`, `nfs_read()`, `nfs_lseek()`, and `nfs_close()` for reading files
+- **File Writing**: Uses `nfs_open()`, `nfs_write()`, `nfs_lseek()`, and `nfs_close()` for writing files
+
+The libnfs library is automatically fetched and built using CMake's FetchContent during the build process.
 
 ## License
 
