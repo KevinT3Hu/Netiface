@@ -24,6 +24,9 @@ class NfsViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
     
+    private val _fileData = MutableStateFlow<ByteArray?>(null)
+    val fileData: StateFlow<ByteArray?> = _fileData.asStateFlow()
+    
     fun connect(server: String, sharePath: String) {
         viewModelScope.launch {
             _connectionState.value = _connectionState.value.copy(
@@ -105,6 +108,18 @@ class NfsViewModel : ViewModel() {
     
     fun clearError() {
         _connectionState.value = _connectionState.value.copy(errorMessage = null)
+    }
+    
+    fun readFileChunk(path: String, offset: Long, size: Int): ByteArray? {
+        val result = nfsClient.readFile(path, offset, size)
+        return when (result) {
+            is NfsResult.Success -> result.data
+            is NfsResult.Error -> null
+        }
+    }
+    
+    fun getNfsClient(): NfsClient {
+        return nfsClient
     }
     
     override fun onCleared() {

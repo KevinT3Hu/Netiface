@@ -35,8 +35,20 @@ fun NetifaceApp(viewModel: NfsViewModel = viewModel()) {
     val isLoading by viewModel.isLoading.collectAsState()
     
     var showFileBrowser by remember { mutableStateOf(false) }
+    var showMediaViewer by remember { mutableStateOf(false) }
+    var mediaFiles by remember { mutableStateOf<List<NfsFileInfo>>(emptyList()) }
+    var initialMediaIndex by remember { mutableStateOf(0) }
     
-    if (connectionState.isConnected && showFileBrowser) {
+    if (showMediaViewer && connectionState.isConnected) {
+        ImageVideoViewerScreen(
+            mediaFiles = mediaFiles,
+            initialIndex = initialMediaIndex,
+            nfsClient = viewModel.getNfsClient(),
+            onClose = {
+                showMediaViewer = false
+            }
+        )
+    } else if (connectionState.isConnected && showFileBrowser) {
         FileBrowserScreen(
             files = files,
             currentPath = currentPath,
@@ -44,6 +56,15 @@ fun NetifaceApp(viewModel: NfsViewModel = viewModel()) {
             onFileClick = { file ->
                 if (file.isDirectory && file.name != "..") {
                     viewModel.loadDirectory(file.path)
+                } else if (!file.isDirectory && FileTypeUtil.isMediaFile(file.name)) {
+                    // Open media viewer
+                    val allMediaFiles = files.filter { !it.isDirectory && FileTypeUtil.isMediaFile(it.name) }
+                    val index = allMediaFiles.indexOfFirst { it.path == file.path }
+                    if (index >= 0) {
+                        mediaFiles = allMediaFiles
+                        initialMediaIndex = index
+                        showMediaViewer = true
+                    }
                 }
             },
             onNavigateUp = {

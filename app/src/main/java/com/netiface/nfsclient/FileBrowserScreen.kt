@@ -135,11 +135,23 @@ fun FileListItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Icon
+            val icon = when {
+                fileInfo.isDirectory -> Icons.Default.Folder
+                FileTypeUtil.isImage(fileInfo.name) -> Icons.Default.Image
+                FileTypeUtil.isVideo(fileInfo.name) -> Icons.Default.VideoLibrary
+                else -> Icons.Default.Description
+            }
+            val iconColor = when {
+                fileInfo.isDirectory -> MaterialTheme.colorScheme.primary
+                FileTypeUtil.isMediaFile(fileInfo.name) -> MaterialTheme.colorScheme.secondary
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            
             Icon(
-                imageVector = if (fileInfo.isDirectory) Icons.Default.Folder else Icons.Default.Description,
+                imageVector = icon,
                 contentDescription = if (fileInfo.isDirectory) "Folder" else "File",
                 modifier = Modifier.size(40.dp),
-                tint = if (fileInfo.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                tint = iconColor
             )
             
             Spacer(modifier = Modifier.width(16.dp))
