@@ -107,6 +107,18 @@ class NfsViewModel : ViewModel() {
         _connectionState.value = _connectionState.value.copy(errorMessage = null)
     }
     
+    fun readFileChunk(path: String, offset: Long, size: Int): ByteArray? {
+        val result = nfsClient.readFile(path, offset, size)
+        return when (result) {
+            is NfsResult.Success -> result.data
+            is NfsResult.Error -> null
+        }
+    }
+    
+    fun getNfsClient(): NfsClient {
+        return nfsClient
+    }
+    
     override fun onCleared() {
         super.onCleared()
         nfsClient.disconnect()
