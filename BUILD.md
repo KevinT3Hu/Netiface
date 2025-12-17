@@ -146,31 +146,17 @@ Netiface/
 
 ## Current Implementation Notes
 
-The current version includes a **mock/demo implementation** of the NFS operations. The native C++ layer (`nfs_wrapper.cpp`) simulates NFS functionality with hardcoded file listings. This allows the app to be built and tested without requiring actual libnfs library integration.
+The application now includes a **real implementation** of NFS operations using the authentic [sahlberg/libnfs](https://github.com/sahlberg/libnfs) library. The native C++ layer (`nfs_wrapper.cpp`) uses actual libnfs API calls to provide full NFS client functionality.
 
-### To Integrate Real libnfs:
+### libnfs Integration
 
-1. **Build libnfs for Android**
-   ```bash
-   git clone https://github.com/sahlberg/libnfs.git
-   cd libnfs
-   # Build for Android architectures using NDK
-   ```
+The build system automatically handles libnfs integration:
 
-2. **Update CMakeLists.txt**
-   ```cmake
-   # Add libnfs as a prebuilt library
-   add_library(nfs SHARED IMPORTED)
-   set_target_properties(nfs PROPERTIES IMPORTED_LOCATION
-       ${CMAKE_SOURCE_DIR}/libs/${ANDROID_ABI}/libnfs.so)
-   
-   # Link against libnfs
-   target_link_libraries(netiface nfs ${log-lib})
-   ```
+1. **Automatic Download**: CMake's FetchContent fetches libnfs 5.0.3 from GitHub
+2. **Automatic Build**: libnfs is compiled as a static library during the build
+3. **Linked Library**: The netiface native library links against libnfs
 
-3. **Replace Mock Implementation**
-   - Update `nfs_wrapper.cpp` to use actual libnfs API calls
-   - Replace simulated functions with real NFS operations
+No manual setup is required - the build system handles everything automatically.
 
 ## Dependencies
 
@@ -240,14 +226,14 @@ The app requests the following permissions (declared in AndroidManifest.xml):
 
 ## Future Enhancements
 
-- Integrate actual libnfs library
-- Add file upload/download functionality
-- Implement file operations (delete, rename, etc.)
-- Add caching for better performance
+- Add file upload/download with progress tracking
+- Implement additional file operations (delete, rename, mkdir, etc.)
 - Support for multiple NFS connections
 - Bookmark favorite shares
 - File search functionality
 - Progress indicators for large file operations
+- File caching for offline access
+- Support for NFS v4 features
 
 ## License
 
