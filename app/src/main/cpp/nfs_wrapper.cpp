@@ -126,7 +126,18 @@ Java_com_netiface_nfsclient_NfsClient_nativeListDirectory(
     
     // Create Java string array
     jclass stringClass = env->FindClass("java/lang/String");
+    if (stringClass == nullptr) {
+        LOGE("Failed to find String class");
+        env->ReleaseStringUTFChars(path, pathStr);
+        return nullptr;
+    }
+    
     jobjectArray result = env->NewObjectArray(fileNames.size(), stringClass, nullptr);
+    if (result == nullptr) {
+        LOGE("Failed to allocate Java object array");
+        env->ReleaseStringUTFChars(path, pathStr);
+        return nullptr;
+    }
     
     for (size_t i = 0; i < fileNames.size(); i++) {
         jstring fileName = env->NewStringUTF(fileNames[i].c_str());
@@ -214,11 +225,17 @@ Java_com_netiface_nfsclient_NfsClient_nativeReadFile(
         }
     }
     
-    // Allocate buffer for reading
-    std::vector<char> buffer(count);
+    // Allocate buffer for reading (with reasonable size limit)
+    const int MAX_READ_SIZE = 10 * 1024 * 1024; // 10 MB max
+    int actualCount = count;
+    if (actualCount > MAX_READ_SIZE) {
+        LOGD("Warning: Requested read size %d exceeds limit, capping to %d", count, MAX_READ_SIZE);
+        actualCount = MAX_READ_SIZE;
+    }
+    std::vector<char> buffer(actualCount);
     
     // Read the file
-    int bytesRead = nfs_read(nfs, fh, count, buffer.data());
+    int bytesRead = nfs_read(nfs, fh, actualCount, buffer.data());
     if (bytesRead < 0) {
         LOGE("Failed to read file: %s", nfs_get_error(nfs));
         nfs_close(nfs, fh);
@@ -231,6 +248,11 @@ Java_com_netiface_nfsclient_NfsClient_nativeReadFile(
     
     // Create Java byte array
     jbyteArray result = env->NewByteArray(bytesRead);
+    if (result == nullptr) {
+        LOGE("Failed to allocate Java byte array");
+        env->ReleaseStringUTFChars(path, pathStr);
+        return nullptr;
+    }
     env->SetByteArrayRegion(result, 0, bytesRead, 
                            reinterpret_cast<const jbyte*>(buffer.data()));
     
@@ -292,6 +314,12 @@ Java_com_netiface_nfsclient_NfsClient_nativeWriteFile(
     
     // Get the data from Java byte array
     jbyte *dataPtr = env->GetByteArrayElements(data, nullptr);
+    if (dataPtr == nullptr) {
+        LOGE("Failed to get byte array elements");
+        nfs_close(nfs, fh);
+        env->ReleaseStringUTFChars(path, pathStr);
+        return -1;
+    }
     
     // Write the data
     int bytesWritten = nfs_write(nfs, fh, dataLen, reinterpret_cast<char*>(dataPtr));
