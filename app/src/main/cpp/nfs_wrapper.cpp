@@ -3,35 +3,16 @@
 #include <android/log.h>
 #include <vector>
 #include <cstring>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <nfsc/libnfs.h>
 
 #define LOG_TAG "NfsWrapper"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-// Simulated NFS connection state
-static bool isConnected = false;
-static std::string connectedServer;
-static std::string connectedExport;
-
-// Simulated file system data structure
-struct FileEntry {
-    std::string name;
-    bool isDirectory;
-    long size;
-    long modifiedTime;
-};
-
-// Mock file system for demonstration
-static std::vector<FileEntry> mockFileSystem = {
-    {"Documents", true, 0, 1638360000},
-    {"Pictures", true, 0, 1638360000},
-    {"Videos", true, 0, 1638360000},
-    {"Music", true, 0, 1638360000},
-    {"Downloads", true, 0, 1638360000},
-    {"test.txt", false, 1024, 1638360000},
-    {"readme.md", false, 2048, 1638360000},
-    {"data.json", false, 4096, 1638360000},
-};
+// NFS connection state
+static struct nfs_context *nfs = nullptr;
 
 extern "C" {
 
@@ -49,11 +30,40 @@ Java_com_netiface_nfsclient_NfsClient_nativeConnect(
     
     LOGD("Connecting to NFS server: %s:%s (uid=%d, gid=%d)", serverStr, exportStr, uid, gid);
     
-    // In a real implementation, this would use libnfs to connect
-    // For this demo, we'll simulate a successful connection
-    connectedServer = serverStr;
-    connectedExport = exportStr;
-    isConnected = true;
+    // Clean up any existing connection
+    if (nfs != nullptr) {
+        nfs_destroy_context(nfs);
+        nfs = nullptr;
+    }
+    
+    // Create a new NFS context
+    nfs = nfs_init_context();
+    if (nfs == nullptr) {
+        LOGE("Failed to initialize NFS context");
+        env->ReleaseStringUTFChars(server, serverStr);
+        env->ReleaseStringUTFChars(exportPath, exportStr);
+        return -1;
+    }
+    
+    // Set UID and GID
+    nfs_set_uid(nfs, uid);
+    nfs_set_gid(nfs, gid);
+    
+    // Build the NFS URL (nfs://server/export)
+    std::string nfsUrl = "nfs://";
+    nfsUrl += serverStr;
+    nfsUrl += exportStr;
+    
+    // Mount the NFS share
+    int ret = nfs_mount(nfs, serverStr, exportStr);
+    if (ret != 0) {
+        LOGE("Failed to mount NFS share: %s", nfs_get_error(nfs));
+        nfs_destroy_context(nfs);
+        nfs = nullptr;
+        env->ReleaseStringUTFChars(server, serverStr);
+        env->ReleaseStringUTFChars(exportPath, exportStr);
+        return ret;
+    }
     
     env->ReleaseStringUTFChars(server, serverStr);
     env->ReleaseStringUTFChars(exportPath, exportStr);
@@ -69,10 +79,11 @@ Java_com_netiface_nfsclient_NfsClient_nativeDisconnect(
     
     LOGD("Disconnecting from NFS server");
     
-    // In a real implementation, this would use libnfs to disconnect
-    isConnected = false;
-    connectedServer.clear();
-    connectedExport.clear();
+    if (nfs != nullptr) {
+        nfs_umount(nfs);
+        nfs_destroy_context(nfs);
+        nfs = nullptr;
+    }
     
     LOGD("Disconnected successfully");
     return 0; // Success
@@ -87,25 +98,46 @@ Java_com_netiface_nfsclient_NfsClient_nativeListDirectory(
     const char *pathStr = env->GetStringUTFChars(path, nullptr);
     LOGD("Listing directory: %s", pathStr);
     
-    if (!isConnected) {
+    if (nfs == nullptr) {
         LOGE("Not connected to NFS server");
         env->ReleaseStringUTFChars(path, pathStr);
         return nullptr;
     }
     
-    // In a real implementation, this would use libnfs to list directory contents
-    // For this demo, we'll return the mock file system
-    jclass stringClass = env->FindClass("java/lang/String");
-    jobjectArray result = env->NewObjectArray(mockFileSystem.size(), stringClass, nullptr);
+    // Open the directory
+    struct nfsdir *dir = nullptr;
+    int ret = nfs_opendir(nfs, pathStr, &dir);
+    if (ret != 0) {
+        LOGE("Failed to open directory %s: %s", pathStr, nfs_get_error(nfs));
+        env->ReleaseStringUTFChars(path, pathStr);
+        return nullptr;
+    }
     
-    for (size_t i = 0; i < mockFileSystem.size(); i++) {
-        jstring fileName = env->NewStringUTF(mockFileSystem[i].name.c_str());
+    // Collect directory entries
+    std::vector<std::string> fileNames;
+    struct nfsdirent *entry;
+    
+    while ((entry = nfs_readdir(nfs, dir)) != nullptr) {
+        // Skip "." and ".." entries
+        if (strcmp(entry->name, ".") != 0 && strcmp(entry->name, "..") != 0) {
+            fileNames.push_back(entry->name);
+        }
+    }
+    
+    nfs_closedir(nfs, dir);
+    
+    // Create Java string array
+    jclass stringClass = env->FindClass("java/lang/String");
+    jobjectArray result = env->NewObjectArray(fileNames.size(), stringClass, nullptr);
+    
+    for (size_t i = 0; i < fileNames.size(); i++) {
+        jstring fileName = env->NewStringUTF(fileNames[i].c_str());
         env->SetObjectArrayElement(result, i, fileName);
         env->DeleteLocalRef(fileName);
     }
     
     env->ReleaseStringUTFChars(path, pathStr);
-    LOGD("Listed %zu files", mockFileSystem.size());
+    LOGD("Listed %zu files", fileNames.size());
     return result;
 }
 
@@ -118,36 +150,31 @@ Java_com_netiface_nfsclient_NfsClient_nativeGetFileInfo(
     const char *pathStr = env->GetStringUTFChars(path, nullptr);
     LOGD("Getting file info: %s", pathStr);
     
-    if (!isConnected) {
+    if (nfs == nullptr) {
         LOGE("Not connected to NFS server");
         env->ReleaseStringUTFChars(path, pathStr);
         return nullptr;
     }
     
-    // Extract file name from path
-    std::string pathString(pathStr);
-    size_t lastSlash = pathString.find_last_of('/');
-    std::string fileName = (lastSlash != std::string::npos) ? 
-                           pathString.substr(lastSlash + 1) : pathString;
-    
-    // Find file in mock file system
-    for (const auto& entry : mockFileSystem) {
-        if (entry.name == fileName) {
-            jlongArray result = env->NewLongArray(2);
-            jlong info[2] = {entry.size, entry.modifiedTime};
-            env->SetLongArrayRegion(result, 0, 2, info);
-            
-            env->ReleaseStringUTFChars(path, pathStr);
-            return result;
-        }
+    // Get file stats
+    struct nfs_stat_64 st;
+    int ret = nfs_stat64(nfs, pathStr, &st);
+    if (ret != 0) {
+        LOGE("Failed to stat file %s: %s", pathStr, nfs_get_error(nfs));
+        env->ReleaseStringUTFChars(path, pathStr);
+        return nullptr;
     }
     
-    // Default file info if not found
+    // Return [size, modifiedTime]
     jlongArray result = env->NewLongArray(2);
-    jlong info[2] = {0, 0};
+    jlong info[2] = {
+        static_cast<jlong>(st.nfs_size),
+        static_cast<jlong>(st.nfs_mtime)
+    };
     env->SetLongArrayRegion(result, 0, 2, info);
     
     env->ReleaseStringUTFChars(path, pathStr);
+    LOGD("File size: %lld, mtime: %lld", (long long)st.nfs_size, (long long)st.nfs_mtime);
     return result;
 }
 
@@ -162,21 +189,54 @@ Java_com_netiface_nfsclient_NfsClient_nativeReadFile(
     const char *pathStr = env->GetStringUTFChars(path, nullptr);
     LOGD("Reading file: %s (offset=%lld, count=%d)", pathStr, (long long)offset, count);
     
-    if (!isConnected) {
+    if (nfs == nullptr) {
         LOGE("Not connected to NFS server");
         env->ReleaseStringUTFChars(path, pathStr);
         return nullptr;
     }
     
-    // In a real implementation, this would use libnfs to read file contents
-    // For this demo, we'll return some sample data
-    std::string sampleData = "This is sample file content from the NFS server.";
-    jbyteArray result = env->NewByteArray(sampleData.length());
-    env->SetByteArrayRegion(result, 0, sampleData.length(), 
-                           reinterpret_cast<const jbyte*>(sampleData.c_str()));
+    // Open the file for reading
+    struct nfsfh *fh = nullptr;
+    int ret = nfs_open(nfs, pathStr, O_RDONLY, &fh);
+    if (ret != 0) {
+        LOGE("Failed to open file %s: %s", pathStr, nfs_get_error(nfs));
+        env->ReleaseStringUTFChars(path, pathStr);
+        return nullptr;
+    }
+    
+    // Seek to the offset if needed
+    if (offset > 0) {
+        ret = nfs_lseek(nfs, fh, offset, SEEK_SET, nullptr);
+        if (ret != 0) {
+            LOGE("Failed to seek in file: %s", nfs_get_error(nfs));
+            nfs_close(nfs, fh);
+            env->ReleaseStringUTFChars(path, pathStr);
+            return nullptr;
+        }
+    }
+    
+    // Allocate buffer for reading
+    std::vector<char> buffer(count);
+    
+    // Read the file
+    int bytesRead = nfs_read(nfs, fh, count, buffer.data());
+    if (bytesRead < 0) {
+        LOGE("Failed to read file: %s", nfs_get_error(nfs));
+        nfs_close(nfs, fh);
+        env->ReleaseStringUTFChars(path, pathStr);
+        return nullptr;
+    }
+    
+    // Close the file
+    nfs_close(nfs, fh);
+    
+    // Create Java byte array
+    jbyteArray result = env->NewByteArray(bytesRead);
+    env->SetByteArrayRegion(result, 0, bytesRead, 
+                           reinterpret_cast<const jbyte*>(buffer.data()));
     
     env->ReleaseStringUTFChars(path, pathStr);
-    LOGD("Read %zu bytes", sampleData.length());
+    LOGD("Read %d bytes", bytesRead);
     return result;
 }
 
@@ -192,18 +252,53 @@ Java_com_netiface_nfsclient_NfsClient_nativeWriteFile(
     jsize dataLen = env->GetArrayLength(data);
     LOGD("Writing file: %s (offset=%lld, length=%d)", pathStr, (long long)offset, dataLen);
     
-    if (!isConnected) {
+    if (nfs == nullptr) {
         LOGE("Not connected to NFS server");
         env->ReleaseStringUTFChars(path, pathStr);
         return -1;
     }
     
-    // In a real implementation, this would use libnfs to write file contents
-    // For this demo, we'll just return success
+    // Open the file for writing
+    struct nfsfh *fh = nullptr;
+    int ret = nfs_open(nfs, pathStr, O_WRONLY | O_CREAT, &fh);
+    if (ret != 0) {
+        LOGE("Failed to open file for writing %s: %s", pathStr, nfs_get_error(nfs));
+        env->ReleaseStringUTFChars(path, pathStr);
+        return -1;
+    }
+    
+    // Seek to the offset if needed
+    if (offset > 0) {
+        ret = nfs_lseek(nfs, fh, offset, SEEK_SET, nullptr);
+        if (ret != 0) {
+            LOGE("Failed to seek in file: %s", nfs_get_error(nfs));
+            nfs_close(nfs, fh);
+            env->ReleaseStringUTFChars(path, pathStr);
+            return -1;
+        }
+    }
+    
+    // Get the data from Java byte array
+    jbyte *dataPtr = env->GetByteArrayElements(data, nullptr);
+    
+    // Write the data
+    int bytesWritten = nfs_write(nfs, fh, dataLen, reinterpret_cast<char*>(dataPtr));
+    
+    // Release the byte array
+    env->ReleaseByteArrayElements(data, dataPtr, JNI_ABORT);
+    
+    // Close the file
+    nfs_close(nfs, fh);
+    
+    if (bytesWritten < 0) {
+        LOGE("Failed to write file: %s", nfs_get_error(nfs));
+        env->ReleaseStringUTFChars(path, pathStr);
+        return -1;
+    }
     
     env->ReleaseStringUTFChars(path, pathStr);
-    LOGD("Wrote %d bytes", dataLen);
-    return dataLen; // Return number of bytes written
+    LOGD("Wrote %d bytes", bytesWritten);
+    return bytesWritten; // Return number of bytes written
 }
 
 JNIEXPORT jboolean JNICALL
@@ -214,27 +309,24 @@ Java_com_netiface_nfsclient_NfsClient_nativeIsDirectory(
     
     const char *pathStr = env->GetStringUTFChars(path, nullptr);
     
-    if (!isConnected) {
+    if (nfs == nullptr) {
         env->ReleaseStringUTFChars(path, pathStr);
         return JNI_FALSE;
     }
     
-    // Extract file name from path
-    std::string pathString(pathStr);
-    size_t lastSlash = pathString.find_last_of('/');
-    std::string fileName = (lastSlash != std::string::npos) ? 
-                           pathString.substr(lastSlash + 1) : pathString;
-    
-    // Check if it's a directory in mock file system
-    for (const auto& entry : mockFileSystem) {
-        if (entry.name == fileName) {
-            env->ReleaseStringUTFChars(path, pathStr);
-            return entry.isDirectory ? JNI_TRUE : JNI_FALSE;
-        }
+    // Get file stats
+    struct nfs_stat_64 st;
+    int ret = nfs_stat64(nfs, pathStr, &st);
+    if (ret != 0) {
+        LOGE("Failed to stat file %s: %s", pathStr, nfs_get_error(nfs));
+        env->ReleaseStringUTFChars(path, pathStr);
+        return JNI_FALSE;
     }
     
     env->ReleaseStringUTFChars(path, pathStr);
-    return JNI_FALSE;
+    
+    // Check if it's a directory using S_ISDIR macro
+    return S_ISDIR(st.nfs_mode) ? JNI_TRUE : JNI_FALSE;
 }
 
 } // extern "C"
