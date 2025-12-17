@@ -70,7 +70,7 @@ fun FileBrowserScreen(
                 )
             }
             
-            Divider()
+            HorizontalDivider()
             
             // File List
             Box(modifier = Modifier.fillMaxSize()) {
