@@ -205,7 +205,7 @@ Java_com_netiface_nfsclient_NfsClient_nativeReadFile(
     // Seek to the offset if needed
     if (offset > 0) {
         uint64_t current_pos;
-        ret = nfs_lseek(nfs, fh, offset, SEEK_SET, &current_pos);
+        ret = nfs_lseek(nfs, fh, static_cast<int64_t>(offset), SEEK_SET, &current_pos);
         if (ret != 0) {
             LOGE("Failed to seek in file: %s", nfs_get_error(nfs));
             nfs_close(nfs, fh);
@@ -258,18 +258,21 @@ Java_com_netiface_nfsclient_NfsClient_nativeWriteFile(
     }
     
     // Open or create the file for writing
-    // Note: Using O_WRONLY without O_TRUNC allows for offset-based writes
-    // This is intentional to support partial file updates via the offset parameter
+    // Note: Not using O_TRUNC allows for offset-based writes
+    // This supports partial file updates via the offset parameter
     struct nfsfh *fh = nullptr;
     int ret;
     
-    // Try to open existing file first
+    // First attempt: Try to open existing file
     ret = nfs_open(nfs, pathStr, O_WRONLY, &fh);
     if (ret != 0) {
-        // File doesn't exist, create it with proper permissions
+        // Second attempt: Create new file if opening failed
+        // Note: This could fail for reasons other than file not existing
+        // (e.g., permissions, network issues), but nfs_creat will return
+        // appropriate error if creation also fails
         ret = nfs_creat(nfs, pathStr, DEFAULT_FILE_MODE, &fh);
         if (ret != 0) {
-            LOGE("Failed to create file %s: %s", pathStr, nfs_get_error(nfs));
+            LOGE("Failed to open or create file %s: %s", pathStr, nfs_get_error(nfs));
             env->ReleaseStringUTFChars(path, pathStr);
             return -1;
         }
@@ -278,7 +281,7 @@ Java_com_netiface_nfsclient_NfsClient_nativeWriteFile(
     // Seek to the offset if needed
     if (offset > 0) {
         uint64_t current_pos;
-        ret = nfs_lseek(nfs, fh, offset, SEEK_SET, &current_pos);
+        ret = nfs_lseek(nfs, fh, static_cast<int64_t>(offset), SEEK_SET, &current_pos);
         if (ret != 0) {
             LOGE("Failed to seek in file: %s", nfs_get_error(nfs));
             nfs_close(nfs, fh);
