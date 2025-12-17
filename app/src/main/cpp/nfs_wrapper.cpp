@@ -11,6 +11,9 @@
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
+// Default file permissions for created files
+#define DEFAULT_FILE_MODE 0644
+
 // NFS connection state
 static struct nfs_context *nfs = nullptr;
 
@@ -48,11 +51,6 @@ Java_com_netiface_nfsclient_NfsClient_nativeConnect(
     // Set UID and GID
     nfs_set_uid(nfs, uid);
     nfs_set_gid(nfs, gid);
-    
-    // Build the NFS URL (nfs://server/export)
-    std::string nfsUrl = "nfs://";
-    nfsUrl += serverStr;
-    nfsUrl += exportStr;
     
     // Mount the NFS share
     int ret = nfs_mount(nfs, serverStr, exportStr);
@@ -269,7 +267,7 @@ Java_com_netiface_nfsclient_NfsClient_nativeWriteFile(
     }
     
     // Set file permissions to 0644 after creation
-    nfs_chmod(nfs, pathStr, 0644);
+    nfs_chmod(nfs, pathStr, DEFAULT_FILE_MODE);
     
     // Seek to the offset if needed
     if (offset > 0) {
