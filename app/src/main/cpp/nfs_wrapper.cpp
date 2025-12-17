@@ -206,7 +206,8 @@ Java_com_netiface_nfsclient_NfsClient_nativeReadFile(
     
     // Seek to the offset if needed
     if (offset > 0) {
-        ret = nfs_lseek(nfs, fh, offset, SEEK_SET, nullptr);
+        uint64_t current_pos;
+        ret = nfs_lseek(nfs, fh, offset, SEEK_SET, &current_pos);
         if (ret != 0) {
             LOGE("Failed to seek in file: %s", nfs_get_error(nfs));
             nfs_close(nfs, fh);
@@ -267,9 +268,13 @@ Java_com_netiface_nfsclient_NfsClient_nativeWriteFile(
         return -1;
     }
     
+    // Set file permissions to 0644 after creation
+    nfs_chmod(nfs, pathStr, 0644);
+    
     // Seek to the offset if needed
     if (offset > 0) {
-        ret = nfs_lseek(nfs, fh, offset, SEEK_SET, nullptr);
+        uint64_t current_pos;
+        ret = nfs_lseek(nfs, fh, offset, SEEK_SET, &current_pos);
         if (ret != 0) {
             LOGE("Failed to seek in file: %s", nfs_get_error(nfs));
             nfs_close(nfs, fh);
