@@ -71,3 +71,6 @@ lint/tmp/
 
 # Android Profiling
 *.hprof
+
+# Kotlin build artifacts
+META-INF/
