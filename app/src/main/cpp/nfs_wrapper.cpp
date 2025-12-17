@@ -141,6 +141,10 @@ Java_com_netiface_nfsclient_NfsClient_nativeListDirectory(
     
     for (size_t i = 0; i < fileNames.size(); i++) {
         jstring fileName = env->NewStringUTF(fileNames[i].c_str());
+        if (fileName == nullptr) {
+            LOGE("Failed to create Java string for filename");
+            continue; // Skip this entry but continue with others
+        }
         env->SetObjectArrayElement(result, i, fileName);
         env->DeleteLocalRef(fileName);
     }
@@ -176,6 +180,11 @@ Java_com_netiface_nfsclient_NfsClient_nativeGetFileInfo(
     
     // Return [size, modifiedTime]
     jlongArray result = env->NewLongArray(2);
+    if (result == nullptr) {
+        LOGE("Failed to allocate Java long array");
+        env->ReleaseStringUTFChars(path, pathStr);
+        return nullptr;
+    }
     jlong info[2] = {
         static_cast<jlong>(st.nfs_size),
         static_cast<jlong>(st.nfs_mtime)
