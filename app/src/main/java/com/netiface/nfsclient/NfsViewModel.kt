@@ -24,9 +24,6 @@ class NfsViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
     
-    private val _fileData = MutableStateFlow<ByteArray?>(null)
-    val fileData: StateFlow<ByteArray?> = _fileData.asStateFlow()
-    
     fun connect(server: String, sharePath: String) {
         viewModelScope.launch {
             _connectionState.value = _connectionState.value.copy(

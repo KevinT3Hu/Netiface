@@ -110,7 +110,7 @@ private class NfsBufferedSource(
                         -1L
                     } else {
                         buffer.write(data)
-                        position += data.size
+                        position += data.size.toLong()
                         data.size.toLong()
                     }
                 }
