@@ -258,6 +258,8 @@ Java_com_netiface_nfsclient_NfsClient_nativeWriteFile(
     }
     
     // Open the file for writing
+    // Note: Using O_WRONLY | O_CREAT without O_TRUNC allows for offset-based writes
+    // This is intentional to support partial file updates via the offset parameter
     struct nfsfh *fh = nullptr;
     int ret = nfs_open(nfs, pathStr, O_WRONLY | O_CREAT, &fh);
     if (ret != 0) {
@@ -266,8 +268,12 @@ Java_com_netiface_nfsclient_NfsClient_nativeWriteFile(
         return -1;
     }
     
-    // Set file permissions to 0644 after creation
-    nfs_chmod(nfs, pathStr, DEFAULT_FILE_MODE);
+    // Set file permissions after creation
+    ret = nfs_chmod(nfs, pathStr, DEFAULT_FILE_MODE);
+    if (ret != 0) {
+        LOGD("Warning: Failed to set file permissions: %s", nfs_get_error(nfs));
+        // Continue anyway as the file was created successfully
+    }
     
     // Seek to the offset if needed
     if (offset > 0) {
